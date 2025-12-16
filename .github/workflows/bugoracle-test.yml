@@ -50,22 +50,34 @@ jobs:
 
       - name: Report result to BugOracle
         if: always()
+        env:
+          TEST_RUN_ID: ${{ github.event.inputs.test_run_id }}
+          STATUS: ${{ steps.test.outcome }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          WEBHOOK_URL: ${{ secrets.BUGORACLE_WEBHOOK_URL }}
+          WEBHOOK_SECRET: ${{ secrets.BUGORACLE_WEBHOOK_SECRET }}
+          BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: |
-          STATUS="${{ steps.test.outcome }}"
           ERROR_MSG=""
-          
           if [ -f test-results.json ]; then
-            ERROR_MSG=$(grep -m1 "Error:" test-results.json | head -c 500 || echo "")
+            # Extract error message safely, escaping for JSON
+            ERROR_MSG=$(grep -m1 "Error:" test-results.json 2>/dev/null | head -c 500 || echo "")
           fi
           
-          curl -X POST "${{ secrets.BUGORACLE_WEBHOOK_URL }}/api/webhooks/github-actions" \
+          # Build JSON payload using jq to handle escaping properly
+          PAYLOAD=$(jq -n \
+            --arg test_run_id "$TEST_RUN_ID" \
+            --arg status "$STATUS" \
+            --arg run_id "$RUN_ID" \
+            --arg run_url "$RUN_URL" \
+            --arg error_message "$ERROR_MSG" \
+            '{test_run_id: $test_run_id, status: $status, run_id: $run_id, run_url: $run_url, error_message: $error_message}')
+          
+          echo "Sending payload to webhook..."
+          curl -X POST "${WEBHOOK_URL}/api/webhooks/github-actions" \
             -H "Content-Type: application/json" \
-            -H "x-bugoracle-secret: ${{ secrets.BUGORACLE_WEBHOOK_SECRET }}" \
-            -H "x-vercel-protection-bypass: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}" \
-            -d "{
-              \"test_run_id\": \"${{ github.event.inputs.test_run_id }}\",
-              \"status\": \"${STATUS}\",
-              \"run_id\": \"${{ github.run_id }}\",
-              \"run_url\": \"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\",
-              \"error_message\": \"${ERROR_MSG}\"
-            }" || true
+            -H "x-bugoracle-secret: ${WEBHOOK_SECRET}" \
+            -H "x-vercel-protection-bypass: ${BYPASS_SECRET}" \
+            -d "$PAYLOAD" || echo "Webhook call failed"
+
