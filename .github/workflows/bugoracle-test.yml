@@ -48,18 +48,24 @@ jobs:
             playwright-report/
             test-results/
 
-      - name: Notify BugOracle
+      - name: Report result to BugOracle
         if: always()
         run: |
-          payload=$(printf '%s' \
-            '{"action":"completed","workflow_run":{"id":'"${{ github.run_id }}"',"name":"BugOracle Test Runner","head_sha":"'"${{ github.sha }}"'","html_url":"'"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"'","conclusion":"'"${{ steps.test.outcome }}"'"}}}')
-
-          # Compute HMAC using the webhook secret
-          sig=$(printf '%s' "$payload" | openssl dgst -sha256 -hmac "${{ secrets.BUGORACLE_WEBHOOK_SECRET }}" | sed 's/^.* //')
-
-          # Send webhook
-          curl -sS -X POST "${{ secrets.BUGORACLE_WEBHOOK_URL }}" \
+          STATUS="${{ steps.test.outcome }}"
+          ERROR_MSG=""
+          
+          if [ -f test-results.json ]; then
+            ERROR_MSG=$(grep -m1 "Error:" test-results.json | head -c 500 || echo "")
+          fi
+          
+          curl -X POST "${{ secrets.BUGORACLE_WEBHOOK_URL }}/api/webhooks/github-actions" \
             -H "Content-Type: application/json" \
-            -H "X-Hub-Signature-256: sha256=$sig" \
+            -H "x-bugoracle-secret: ${{ secrets.BUGORACLE_WEBHOOK_SECRET }}" \
             -H "x-vercel-protection-bypass: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}" \
-            -d "$payload" || true
+            -d "{
+              \"test_run_id\": \"${{ github.event.inputs.test_run_id }}\",
+              \"status\": \"${STATUS}\",
+              \"run_id\": \"${{ github.run_id }}\",
+              \"run_url\": \"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\",
+              \"error_message\": \"${ERROR_MSG}\"
+            }" || true
