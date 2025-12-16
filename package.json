@@ -1,0 +1,9 @@
+{
+  "name": "watchdog-test",
+  "version": "1.0.0",
+  "description": "Test repo for BugOracle Watchdog",
+  "main": "index.js",
+  "scripts": {
+    "test": "node test.js"
+  }
+}
