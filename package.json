@@ -1,9 +1,20 @@
 {
-  "name": "watchdog-test",
+  "name": "@watchdog/test-suite",
   "version": "1.0.0",
-  "description": "Test repo for BugOracle Watchdog",
-  "main": "index.js",
+  "description": "Comprehensive test suite for BugOracle Watchdog AI Auto-Fix",
+  "type": "module",
+  "main": "src/index.js",
   "scripts": {
-    "test": "node test.js"
+    "start": "node src/index.js",
+    "test": "node --test tests/",
+    "test:scenario": "node tests/run-scenario.js",
+    "lint": "eslint src/"
+  },
+  "dependencies": {
+    "@bugoracle/browser": "^0.1.0",
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "eslint": "^8.56.0"
   }
 }
