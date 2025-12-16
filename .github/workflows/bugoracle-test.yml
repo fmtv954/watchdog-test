@@ -1,0 +1,65 @@
+name: BugOracle Test Runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_run_id:
+        description: "BugOracle Test Run ID"
+        required: true
+      test_file:
+        description: "Path to test file"
+        required: true
+        default: "tests/bugoracle-reproduction.spec.ts"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run BugOracle Test
+        id: test
+        run: |
+          npx playwright test ${{ github.event.inputs.test_file }} --reporter=json > test-results.json 2>&1 || true
+          echo "exit_code=$?" >> $GITHUB_OUTPUT
+        continue-on-error: true
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            test-results.json
+            playwright-report/
+            test-results/
+
+      - name: Notify BugOracle
+        if: always()
+        run: |
+          payload=$(printf '%s' \
+            '{"action":"completed","workflow_run":{"id":'"${{ github.run_id }}"',"name":"BugOracle Test Runner","head_sha":"'"${{ github.sha }}"'","html_url":"'"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"'","conclusion":"'"${{ steps.test.outcome }}"'"}}}')
+
+          # Compute HMAC using the webhook secret
+          sig=$(printf '%s' "$payload" | openssl dgst -sha256 -hmac "${{ secrets.BUGORACLE_WEBHOOK_SECRET }}" | sed 's/^.* //')
+
+          # Send webhook
+          curl -sS -X POST "${{ secrets.BUGORACLE_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -H "X-Hub-Signature-256: sha256=$sig" \
+            -H "x-vercel-protection-bypass: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}" \
+            -d "$payload" || true
